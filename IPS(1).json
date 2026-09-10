@@ -1,0 +1,333 @@
+{
+  "name": "IPS",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "ips-alert",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        32,
+        -368
+      ],
+      "id": "09970982-4a6d-4b37-b54a-34a7af2d8560",
+      "name": "Webhook",
+      "webhookId": "9df67828-47d6-44b1-a048-7219caf190d3"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const data = $json.body;\n\nconst ip = data.src_ip;\nconst attack = data.attack_type;\nconst pps = data.packets_per_sec;\n\n// Initialize memory FIRST\nif (!globalThis.blockedIPs) {\n  globalThis.blockedIPs = {};\n}\n\nif (!globalThis.attackHistory) {\n  globalThis.attackHistory = {};\n}\n\n// 🔴 Skip if already blocked\nif (globalThis.blockedIPs[ip]) {\n  return {\n    json: {\n      ...data,\n      ip: ip,\n      skip: true\n    }\n  };\n}\n\n// Initialize IP history\nif (!globalThis.attackHistory[ip]) {\n  globalThis.attackHistory[ip] = {\n    attacks: [],\n    last_seen: Date.now()\n  };\n}\n\n// Store attack\nglobalThis.attackHistory[ip].attacks.push(attack);\n\n// Keep last 10\nif (globalThis.attackHistory[ip].attacks.length > 10) {\n  globalThis.attackHistory[ip].attacks.shift();\n}\n\n// Unique attacks\nconst uniqueAttacks = [...new Set(globalThis.attackHistory[ip].attacks)];\n\nlet classification = \"SINGLE_ATTACK\";\nlet severity = \"LOW\";\n\nif (uniqueAttacks.length >= 2) {\n  classification = \"MULTI_VECTOR_ATTACK\";\n  severity = \"MEDIUM\";\n}\n\nif (pps > 2000) {\n  severity = \"HIGH\";\n}\n\nif (uniqueAttacks.length >= 2 && pps > 1500) {\n  classification = \"ADVANCED_MULTI_VECTOR_ATTACK\";\n  severity = \"CRITICAL\";\n}\n\n// ✅ Mark as blocked (only first time)\nglobalThis.blockedIPs[ip] = true;\n\n// ✅ Final return (OBJECT, not array)\nreturn {\n  json: {\n    ip: ip,\n    src_ip: ip,\n    attack: attack,\n    classification: classification,\n    severity: severity,\n    history: globalThis.attackHistory[ip].attacks.join(\", \"),\n    history_count: globalThis.attackHistory[ip].attacks.length,\n    unique_attack_types: uniqueAttacks.length,\n    packets_per_sec: pps,\n    skip: false\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        400,
+        -368
+      ],
+      "id": "aad4a6eb-ada0-4ea7-90d5-dbd117552324",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        1792,
+        -384
+      ],
+      "id": "956d15fa-4bec-4f86-9952-c577e2ac7b20",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6d4b56cf-ef42-4d65-a91e-115702172732",
+              "name": "block_duration",
+              "value": "={{$json[\"classification\"] === \"SINGLE_ATTACK\" ? 60 :   $json[\"classification\"] === \"MULTI_VECTOR_ATTACK\" ? 180 : 300}}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        -384
+      ],
+      "id": "77154037-c5bc-45e0-8270-bf789441025d",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "if (globalThis.blockedIPs && $json.ip) {\n  delete globalThis.blockedIPs[$json.ip];\n}\nreturn $json;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2480,
+        -384
+      ],
+      "id": "16d5e769-6565-4ce2-a2ff-47c36bd880ba",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b6e34347-693d-43ee-959f-845bcb5bcb15",
+              "leftValue": "={{$json[\"skip\"]}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        688,
+        -512
+      ],
+      "id": "9baa6e21-4aec-49ce-806c-fbe9c550855a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "amount": 10
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        912,
+        -384
+      ],
+      "id": "3ea46ff3-bf67-4db4-a6f2-9093469abe94",
+      "name": "Wait1",
+      "webhookId": "15c85846-ee8a-48dc-a4c5-7b46e886b2cc"
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const ip = $json.ip;\n\n// Ensure memory exists\nif (!globalThis.attackHistory) {\n  globalThis.attackHistory = {};\n}\n\n// Ensure IP exists\nif (!globalThis.attackHistory[ip]) {\n  globalThis.attackHistory[ip] = {\n    attacks: []\n  };\n}\n\nconst history = globalThis.attackHistory[ip].attacks;\n\nconst uniqueAttacks = [...new Set(history)];\n\nlet classification = \"SINGLE_ATTACK\";\nlet severity = \"LOW\";\n\nif (uniqueAttacks.length >= 2) {\n  classification = \"MULTI_VECTOR_ATTACK\";\n  severity = \"MEDIUM\";\n}\n\nif ($json.packets_per_sec > 2000) {\n  severity = \"HIGH\";\n}\n\nif (uniqueAttacks.length >= 2 && $json.packets_per_sec > 1500) {\n  classification = \"ADVANCED_MULTI_VECTOR_ATTACK\";\n  severity = \"CRITICAL\";\n}\n\nreturn {\n  json: {\n    ...$json,\n    classification: classification,\n    severity: severity,\n    unique_attack_types: uniqueAttacks.length\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        -384
+      ],
+      "id": "f45a7adc-8940-4b54-be1e-da9d393ea089",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "command": "=sudo iptables -I INPUT -s {{$json[\"src_ip\"]}} -j DROP"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        1584,
+        -544
+      ],
+      "id": "04a50861-71c0-4b7e-82ab-8a23f2a20993",
+      "name": "block command",
+      "credentials": {
+        "sshPassword": {
+          "id": "ztmClVKUiaNmDQsN",
+          "name": "SSH Password account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "=sudo iptables -D INPUT -s {{$json[\"ip\"]}} -j DROP"
+      },
+      "type": "n8n-nodes-base.ssh",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        -384
+      ],
+      "id": "f423df11-ea81-45f7-83c9-ba8e971f02b6",
+      "name": "unblock command",
+      "credentials": {
+        "sshPassword": {
+          "id": "ztmClVKUiaNmDQsN",
+          "name": "SSH Password account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "amount": "={{$json[\"block_duration\"]}}"
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2032,
+        -384
+      ],
+      "id": "9a19798e-96b0-4203-9049-7aac57b47484",
+      "name": "Adaptive Wait",
+      "webhookId": "860954ea-17d6-462b-8fd5-9f20a90f0b70"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Adaptive Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "block command",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Wait1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "block command": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "unblock command": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Adaptive Wait": {
+      "main": [
+        [
+          {
+            "node": "unblock command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "0313aed7-f023-43f0-b676-f8fd00029409",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "37d3a70e811ff560919e706158489ddbae1c12bdb61b8c99e0a4d25b51cf8bee"
+  },
+  "id": "py6451K9zEKXyMgL",
+  "tags": []
+}
